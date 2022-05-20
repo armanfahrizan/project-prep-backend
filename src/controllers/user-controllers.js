@@ -6,7 +6,15 @@ const nodemailer = require('nodemailer')
 const createError = require('../helpers/create-error')
 const createRespond = require('../helpers/create-respond')
 const {http_status_code, http_status_message} = require('../helpers/http-status')
-const {registerUserSchema, loginUserSchema, passwordSchema, resetPasswordSchema, editUserSchema} = require('../helpers/validation-schema')
+const {
+    registerUserSchema, 
+    loginUserSchema, 
+    passwordSchema, 
+    resetPasswordSchema, 
+    usernameSchema,
+    fullnameSchema,
+    bioSchema
+} = require('../helpers/validation-schema')
 
 
 //REGISTER USER
@@ -20,6 +28,10 @@ module.exports.registerUser = async (req, resp) => {
             throw new createError(http_status_code.BAD_REQUEST, validateUserSchema.error.details[0].message)
         }
         
+        const validateUsername = usernameSchema.validate(username, {details: true})
+        if(validateUsername.length){
+            throw new createError(http_status_code.BAD_REQUEST, validateUsername[0].message)
+        }
         const validatePassword = passwordSchema.validate(password, {details: true})
         console.log(`validatePassword:`, validatePassword );
         console.log(`validatePassword.length:`, validatePassword.length );
@@ -65,7 +77,7 @@ module.exports.registerUser = async (req, resp) => {
         await database.execute(POST_USER, [userId, fullname, username, email, hashpassword])
         
         //7. create jwt token
-        const token = await jwt.sign({username}, process.env.SECRET_KEY, {expiresIn: '1h'})
+        const token = await jwt.sign({username}, process.env.SECRET_KEY, {expiresIn: '30000'})
         console.log(`jwt token:`, token);
 
         //8. do query and execute to database tokens
@@ -135,7 +147,7 @@ module.exports.verifyUser = async (req, resp) => {
         console.log(`getTime created:`, created);
         const remain = now - created
         console.log(`remain:`, remain);
-        if(remain >= 3600000){
+        if(remain >= 30000){
             throw new createError(http_status_code.REQUEST_TIMEOUT, 'Your link verification has expired')
         }
 
@@ -199,7 +211,7 @@ module.exports.loginUser = async (req, resp) => {
         }
 
         //4. Check status user, verify?
-        if(USERNAME[0].status === 0){
+        if(USERNAME[0].status === "0"){
             console.log(`BELUM VERIFIKASI`);
             throw new createError(http_status_code.UNAUTHORIZED, 'You have to verify your account first. Check your email.')
         } 
@@ -211,7 +223,7 @@ module.exports.loginUser = async (req, resp) => {
         //6. send respond
         const respond = new createRespond(http_status_code.OK, http_status_message.OK, 'Get User Data', 1, 1, USERNAME[0])
         console.log(`respon akhir:`, respond.data);
-        resp.header('authToken', `Bearer ${token}`).send(respond)        
+        resp.header('authToken', `Bearer ${token} ${USERNAME[0].userId}`).send(respond)        
     } catch (err) {
         console.log(`error:`, err);
         const throwError = err instanceof createError
@@ -253,36 +265,46 @@ module.exports.keepLogin = async (req, resp) => {
 
 //resend token
 module.exports.refreshToken = async (req, resp) => {
-    //define token
-    const token = req.params.token
+    const {email} = req.body
     try {
         //1. check data tokens to get userId
-        const GET_USERID = `SELECT * FROM tokens WHERE token = ?;`
-        const [USERID] = await database.execute(GET_USERID, [token])
-        console.log(`userId at tokens:`, USERID);
+        const GET_USERID = `SELECT * FROM users WHERE email = ?;`
+        const [USERID] = await database.execute(GET_USERID, [email])
+        console.log(`userId at users:`, USERID);
         if(!USERID.length){
-            throw new createError(http_status_code.NOT_FOUND, `userId with token ${token} not found`)
+            throw new createError(http_status_code.NOT_FOUND, `userId with token ${email} not found`)
         }
 
-        //1.1 Check username in database
-        const GET_USER = `SELECT * FROM users WHERE userId = ?;`
-        const [USER] = await database.execute(GET_USER, [USERID[0].userId])
-        console.log(`user at refresh:`, USER);
-        if(!USER.length){
-            throw new createError(http_status_code.NOT_FOUND, `Account with username ${username} or email ${email} doesn't found.`)
+        //get token
+        const userId = USERID[0].userId
+        const GET_TOKEN = `SELECT * FROM users WHERE userId = ?;`
+        const [TOKEN] = await database.execute(GET_TOKEN, [userId])
+        console.log(`userId at tokens:`, TOKEN);
+        if(!TOKEN.length){
+            throw new createError(http_status_code.NOT_FOUND, `token with userId ${userId} not found`)
         }
-        const username = USER[0].username
-        console.log(`username at USER[0]:`, USER[0].username);
-        const email = USER[0].email
 
+        //if token not expired
+        const current = new Date().getTime()
+        console.log(`getTime NOW:`, current);
+        const created = new Date(TOKEN[0].createdAt).getTime()
+        console.log(`getTime created:`, created);
+        const remain = current  - created
+        console.log(`remain:`, remain);
+        if(remain <= 3600000){
+            throw new createError(http_status_code.REQUEST_TIMEOUT, 'Your link verification not expired yet, try it later')
+        }
+
+        
+        
         //2. create jwt token
         const now = new Date()
         console.log(`now:`, now);
-        const newToken = await jwt.sign({username}, process.env.SECRET_KEY, {expiresIn: '1h'})
+        const newToken = await jwt.sign({userId}, process.env.SECRET_KEY, {expiresIn: '1h'})
         console.log(`jwt new token:`, newToken);
 
         //3. do query and execute to database tokens
-        const UPDATE_TOKEN = `UPDATE tokens SET token = ${database.escape(newToken)}, createdAt = ${database.escape(now)} WHERE userId = ${database.escape(USER[0].userId)};`
+        const UPDATE_TOKEN = `UPDATE tokens SET token = ${database.escape(newToken)}, createdAt = ${database.escape(now)} WHERE userId = ${database.escape(userId)};`
         const [INFO] = await database.execute(UPDATE_TOKEN)
         console.log(`info add token:`, INFO);
 
@@ -301,7 +323,7 @@ module.exports.refreshToken = async (req, resp) => {
             subject : 'Account Verification',
             html : `
                 <p>Please verify your account using this link</p>
-                <a href='http://localhost:3000/verify/${newToken}'>Click here for verification your account</a>
+                <a href='http://localhost:3000/verify/${newToken}/verify/${userId}'>Click here for verification your account</a>
 
                 <p>NOTE : this link can be acces in 1 hour</p>
             `
@@ -309,7 +331,7 @@ module.exports.refreshToken = async (req, resp) => {
         
         //9. send respond to client
         const respond = new createRespond(http_status_code.CREATED, http_status_message.CREATED, 'Add New Token', 1, 1, `Resend Link Verification success, please verifiy your account immediately`)
-        resp.header('UID', USER[0].userId).status(respond.status).send(respond.data)
+        resp.header('UID', userId).status(respond.status).send(respond.data)
     } catch (err) {
         console.log(`error:`, err);
         const throwError = err instanceof createError
@@ -421,12 +443,11 @@ module.exports.verifyResetPassword = async (req, resp) => {
 
 //Edit Profile
 module.exports.editProfile = async (req, resp) => {
-    const {fullname, username, bio} = req.body
+    let {fullname, username, bio} = req.body
     const userId = req.params.userId
     console.log(`body:`, req.body);
     try {
-        
-        //2. check userId in database
+        //1. check database
         const CHECK_ID = `SELECT * FROM users WHERE userID = ?;`
         const [ID] = await database.execute(CHECK_ID, [userId])
         console.log(`data User:`, ID);
@@ -434,19 +455,31 @@ module.exports.editProfile = async (req, resp) => {
             throw new createError(http_status_code.NOT_FOUND, http_status_message.NOT_FOUND)
         }
 
-        //3. check empty value at property
-        if(fullname === ""){
-            delete req.body.fullname
-        }
+        //2. check props if empty and schema
+        if(username === "")
+            username = ID[0].username
 
-        if(username === ""){
-            delete req.body.username
+        const validateUsername = usernameSchema.validate(username, {details: true})
+        if(validateUsername.length){
+            throw new createError(http_status_code.BAD_REQUEST, validateUsername[0].message)
+        }
+        
+        if(fullname === "")
+            fullname = ID[0].fullname
+        
+        const validateFullname = fullnameSchema.validate(fullname, {details: true})
+        if(validateFullname.length){
+            throw new createError(http_status_code.BAD_REQUEST, validateFullname[0].message)
         }
 
         if(bio === "")
-        delete req.body.bio
+            bio = ID[0].bio
+        const validateBio = bioSchema.validate(bio, {details: true})
+        if(validateBio.length){
+            throw new createError(http_status_code.BAD_REQUEST, validateBio[0].message)
+        }
 
-        //4. check duplicate username
+        //3. check duplicate username
         if(username !== ID[0].username){
             const CHECK_USERNAME = `SELECT * FROM users WHERE username = ?;`
             const [USERNAME] = await database.execute(CHECK_USERNAME, [username])
@@ -457,13 +490,8 @@ module.exports.editProfile = async (req, resp) => {
         }
 
         //5. do query edit user profile and execute
-        let values = []
-        //do looping for get properti and value
-        for ( let key in req.body) {
-            values.push(`${key} = '${req.body[key]}'`)
-        const UPDATE_PROFILE = `UPDATE users SET ${values} WHERE userId = ?;`
-        const [PROFILE] = await database.execute(UPDATE_PROFILE, [userId])
-        console.log(`update profile:`, PROFILE)}
+        const UPDATE_PROFILE = `UPDATE users SET fullname = ?, username = ?, bio = ? WHERE userId = ?;`
+        await database.execute(UPDATE_PROFILE, [fullname, username, bio, userId])
 
         //6. send respond to client
         const respond = new createRespond(http_status_code.CREATED, http_status_message.CREATED, 'Update user profile', 1, 1, 'Your Profile has been updated')

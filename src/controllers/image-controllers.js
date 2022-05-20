@@ -4,7 +4,9 @@ const database = require('../config').promise()
 const createError = require('../helpers/create-error')
 const createRespond = require('../helpers/create-respond')
 const {http_status_code, http_status_message} = require('../helpers/http-status')
-const dir = './public/profiles/'
+const dir_pict = './public/profiles/'
+const dir_ava = './public/avatars'
+const dir_photo = './public/photos'
 
 //post Profile Picture
 module.exports.addProfilePicture = async (req, resp) => {
@@ -42,7 +44,7 @@ module.exports.addProfilePicture = async (req, resp) => {
         console.log(`error:`, err);
 
         //delete image form multer if error
-        fs.unlinkSync(path.join(dir + pict.filename)) 
+        fs.unlinkSync(path.join(dir_pict + pict.filename)) 
 
         const throwError = err instanceof createError
         if(!throwError){
@@ -59,7 +61,7 @@ module.exports.addAvatar = async (req, resp) => {
     console.log(`req.file:`, req.file);
     try {
         //1. check type file
-        if(!pict){
+        if(!ava){
             throw new createError(http_status_code.BAD_REQUEST, 'File not found.')
         }
 
@@ -87,7 +89,7 @@ module.exports.addAvatar = async (req, resp) => {
         console.log(`error:`, err);
 
         //delete image form multer if error
-        fs.unlinkSync(path.join(dir + ava.filename)) 
+        fs.unlinkSync(path.join(dir_ava + ava.filename)) 
 
         const throwError = err instanceof createError
         if(!throwError){
@@ -126,7 +128,7 @@ module.exports.addPhoto = async (req, resp) => {
         console.log(`error:`, err);
 
         //delete image if error
-       fs.unlinkSync(path.join(dir + image.filename)) 
+       fs.unlinkSync(path.join(dir_photo + image.filename)) 
 
         const throwError = err instanceof createError
         if(!throwError){

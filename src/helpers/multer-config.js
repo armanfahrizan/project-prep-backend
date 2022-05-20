@@ -17,7 +17,7 @@ const postStorage = multer.diskStorage({
     //memiliki 2 properti yaitu destination dan filename, yang keduanya berbentuk function
     destination : function (req, file, cb) {
         //callback memiliki 2 paramater, yaitu error dan file destination
-        cb(null, './public/posts')
+        cb(null, './public/photos')
     },
     //filename berfungsi sebagai mengganti nama file
     filename : function (req, file, cb) {
